@@ -1,11 +1,13 @@
--- ⚠️ Requires Executor — Action Monitor v3 (Lag-Free)
--- Hook is instant (zero overhead). Logging is queued and processed separately.
--- Mobile: tap 👁 button to toggle. Draggable window.
+-- ⚠️ Requires Executor — Action Monitor v4
+-- Uses hookfunction on FireServer/InvokeServer ONLY — zero lag, movement unaffected.
+-- Mobile: tap 👁 to toggle. Long-press any log line to select & copy text.
+-- Copy All button copies entire log.
 
 local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-if not hookmetamethod or not getnamecallmethod then
-    warn("[ActionMonitor] Executor missing hookmetamethod/getnamecallmethod.")
+if not hookfunction then
+    warn("[ActionMonitor] This executor does not support hookfunction.")
     return
 end
 
@@ -17,8 +19,8 @@ ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent = game:GetService("CoreGui")
 
 local Main = Instance.new("Frame")
-Main.Size = UDim2.new(0, 320, 0, 380)
-Main.Position = UDim2.new(0.03, 0, 0.5, -190)
+Main.Size = UDim2.new(0, 330, 0, 400)
+Main.Position = UDim2.new(0.03, 0, 0.5, -200)
 Main.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
 Main.BorderSizePixel = 0
 Main.Visible = false
@@ -29,6 +31,7 @@ Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
 local st = Instance.new("UIStroke", Main)
 st.Color = Color3.fromRGB(70, 70, 110); st.Thickness = 1.5
 
+-- Title bar
 local TitleBar = Instance.new("Frame")
 TitleBar.Size = UDim2.new(1, 0, 0, 38)
 TitleBar.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
@@ -37,7 +40,7 @@ TitleBar.Parent = Main
 Instance.new("UICorner", TitleBar).CornerRadius = UDim.new(0, 10)
 
 local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size = UDim2.new(1, -80, 1, 0)
+TitleLabel.Size = UDim2.new(1, -140, 1, 0)
 TitleLabel.Position = UDim2.new(0, 12, 0, 0)
 TitleLabel.BackgroundTransparency = 1
 TitleLabel.Text = "Action Monitor"
@@ -47,9 +50,22 @@ TitleLabel.TextSize = 15
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.Parent = TitleBar
 
+-- Copy All button
+local CopyAllBtn = Instance.new("TextButton")
+CopyAllBtn.Size = UDim2.new(0, 60, 0, 26)
+CopyAllBtn.Position = UDim2.new(1, -134, 0.5, -13)
+CopyAllBtn.BackgroundColor3 = Color3.fromRGB(50, 100, 160)
+CopyAllBtn.Text = "Copy All"
+CopyAllBtn.TextColor3 = Color3.new(1,1,1)
+CopyAllBtn.Font = Enum.Font.Gotham
+CopyAllBtn.TextSize = 11
+CopyAllBtn.Parent = TitleBar
+Instance.new("UICorner", CopyAllBtn).CornerRadius = UDim.new(0, 6)
+
+-- Clear button
 local ClearBtn = Instance.new("TextButton")
-ClearBtn.Size = UDim2.new(0, 60, 0, 26)
-ClearBtn.Position = UDim2.new(1, -68, 0.5, -13)
+ClearBtn.Size = UDim2.new(0, 56, 0, 26)
+ClearBtn.Position = UDim2.new(1, -66, 0.5, -13)
 ClearBtn.BackgroundColor3 = Color3.fromRGB(140, 50, 50)
 ClearBtn.Text = "Clear"
 ClearBtn.TextColor3 = Color3.new(1,1,1)
@@ -58,6 +74,7 @@ ClearBtn.TextSize = 12
 ClearBtn.Parent = TitleBar
 Instance.new("UICorner", ClearBtn).CornerRadius = UDim.new(0, 6)
 
+-- Log container
 local LogFrame = Instance.new("ScrollingFrame")
 LogFrame.Size = UDim2.new(1, -12, 1, -46)
 LogFrame.Position = UDim2.new(0, 6, 0, 42)
@@ -69,7 +86,7 @@ LogFrame.Parent = Main
 local ListLayout = Instance.new("UIListLayout", LogFrame)
 ListLayout.Padding = UDim.new(0, 3)
 
--- Toggle button (mobile friendly)
+-- Toggle button
 local ToggleBtn = Instance.new("TextButton")
 ToggleBtn.Size = UDim2.new(0, 56, 0, 56)
 ToggleBtn.Position = UDim2.new(0.02, 0, 0.82, 0)
@@ -84,8 +101,9 @@ Instance.new("UICorner", ToggleBtn).CornerRadius = UDim.new(1, 0)
 local ts = Instance.new("UIStroke", ToggleBtn)
 ts.Color = Color3.fromRGB(100,160,255); ts.Thickness = 2
 
--- ============ LOG QUEUE (no UI work inside hook) ============
+-- ============ LOGGING ============
 local LogQueue = {}
+local FullLog = {}  -- for Copy All
 local MaxLogs = 60
 local LogCount = 0
 
@@ -108,33 +126,37 @@ local function FormatArgs(...)
     return table.concat(parts, " ")
 end
 
--- Process queue in separate loop — never inside the hook
+-- Process queue — separate loop, throttled
 task.spawn(function()
     while true do
-        task.wait(0.15) -- throttle UI updates
+        task.wait(0.2)
         if #LogQueue == 0 then continue end
 
         for _, entry in ipairs(LogQueue) do
             LogCount = LogCount + 1
-            local lbl = Instance.new("TextLabel")
-            lbl.LayoutOrder = LogCount
-            lbl.Size = UDim2.new(1, -6, 0, 0)
-            lbl.AutomaticSize = Enum.AutomaticSize.Y
-            lbl.BackgroundTransparency = 1
-            lbl.Text = entry.text
-            lbl.TextColor3 = entry.color
-            lbl.Font = Enum.Font.Code
-            lbl.TextSize = 11
-            lbl.TextWrapped = true
-            lbl.TextXAlignment = Enum.TextXAlignment.Left
-            lbl.Parent = LogFrame
+            -- Use TextBox so text is SELECTABLE + COPYABLE on mobile
+            local box = Instance.new("TextBox")
+            box.LayoutOrder = LogCount
+            box.Size = UDim2.new(1, -6, 0, 0)
+            box.AutomaticSize = Enum.AutomaticSize.Y
+            box.BackgroundTransparency = 1
+            box.Text = entry.text
+            box.TextColor3 = entry.color
+            box.Font = Enum.Font.Code
+            box.TextSize = 11
+            box.TextWrapped = true
+            box.TextXAlignment = Enum.TextXAlignment.Left
+            box.ClearTextOnFocus = false
+            box.ReadOnly = true  -- can't edit, but CAN select + copy
+            box.MultiLine = true
+            box.Parent = LogFrame
         end
         table.clear(LogQueue)
 
-        -- Trim + scroll
+        -- Trim old
         local labels = {}
         for _,c in ipairs(LogFrame:GetChildren()) do
-            if c:IsA("TextLabel") then table.insert(labels, c) end
+            if c:IsA("TextBox") then table.insert(labels, c) end
         end
         if #labels > MaxLogs then
             table.sort(labels, function(a,b) return a.LayoutOrder < b.LayoutOrder end)
@@ -147,50 +169,74 @@ end)
 
 local function PushLog(text, color)
     table.insert(LogQueue, {text = text, color = color or Color3.fromRGB(190,190,200)})
+    table.insert(FullLog, text)
+    if #FullLog > 500 then table.remove(FullLog, 1) end
 end
 
--- ============ THE HOOK — INSTANT, ZERO OVERHEAD ============
-local oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-    -- Instant check — if not a remote call, pass through with zero work
-    local method = getnamecallmethod()
-    if method == "FireServer" and self:IsA("RemoteEvent") then
-        -- Queue only — no UI, no string concat heavy work here
-        local ok, args = pcall(FormatArgs, ...)
-        PushLog("FireServer: "..self.Name, Color3.fromRGB(100,200,255))
-        if ok then PushLog("  -> "..args, Color3.fromRGB(140,140,160)) end
-    elseif method == "InvokeServer" and self:IsA("RemoteFunction") then
-        local ok, args = pcall(FormatArgs, ...)
-        PushLog("InvokeServer: "..self.Name, Color3.fromRGB(255,180,100))
-        if ok then PushLog("  -> "..args, Color3.fromRGB(140,140,160)) end
-        local results = {oldNamecall(self, ...)}
-        local ok2, ret = pcall(FormatArgs, unpack(results))
-        if ok2 then PushLog("  <- "..ret, Color3.fromRGB(100,255,150)) end
-        return unpack(results)
-    end
-    -- Everything else passes through instantly
-    return oldNamecall(self, ...)
+-- ============ THE HOOKS — ONLY FireServer + InvokeServer ============
+-- This is the fix: hookfunction only triggers on actual remote calls.
+-- Movement, input, physics calls are NOT intercepted at all.
+
+-- Hook FireServer (RemoteEvent)
+local oldFireServer = hookfunction(Instance.new("RemoteEvent").FireServer, function(self, ...)
+    local ok, args = pcall(FormatArgs, ...)
+    PushLog("FireServer: " .. (self.Name or "?"), Color3.fromRGB(100,200,255))
+    if ok then PushLog("  -> " .. args, Color3.fromRGB(140,140,160)) end
+    return oldFireServer(self, ...)
 end)
 
--- ============ TOGGLE ============
+-- Hook InvokeServer (RemoteFunction)
+local oldInvokeServer = hookfunction(Instance.new("RemoteFunction").InvokeServer, function(self, ...)
+    local ok, args = pcall(FormatArgs, ...)
+    PushLog("InvokeServer: " .. (self.Name or "?"), Color3.fromRGB(255,180,100))
+    if ok then PushLog("  -> " .. args, Color3.fromRGB(140,140,160)) end
+    local results = {oldInvokeServer(self, ...)}
+    local ok2, ret = pcall(FormatArgs, unpack(results))
+    if ok2 then PushLog("  <- " .. ret, Color3.fromRGB(100,255,150)) end
+    return unpack(results)
+end)
+
+-- Also hook fireproximityprompt (executor function) if it exists
+if fireproximityprompt then
+    local oldFPP = hookfunction(fireproximityprompt, function(prompt, ...)
+        PushLog("fireproximityprompt: " .. (prompt and prompt.Name or "?"), Color3.fromRGB(255,120,200))
+        return oldFPP(prompt, ...)
+    end)
+end
+
+-- ============ BUTTONS ============
 local visible = false
 local function Toggle()
     visible = not visible
     Main.Visible = visible
 end
 ToggleBtn.MouseButton1Click:Connect(Toggle)
+
 ClearBtn.MouseButton1Click:Connect(function()
     for _,c in ipairs(LogFrame:GetChildren()) do
-        if c:IsA("TextLabel") then c:Destroy() end
+        if c:IsA("TextBox") then c:Destroy() end
     end
     LogCount = 0
+    table.clear(FullLog)
     LogFrame.CanvasSize = UDim2.new(0,0,0,0)
 end)
+
+CopyAllBtn.MouseButton1Click:Connect(function()
+    local text = table.concat(FullLog, "\n")
+    if setclipboard then
+        setclipboard(text)
+        PushLog("[Copied " .. #FullLog .. " lines to clipboard]", Color3.fromRGB(100,255,120))
+    else
+        PushLog("[setclipboard not supported — long-press lines to copy manually]", Color3.fromRGB(255,200,100))
+    end
+end)
+
 if UserInputService.KeyboardEnabled then
     UserInputService.InputBegan:Connect(function(input, gp)
         if not gp and input.KeyCode == Enum.KeyCode.F9 then Toggle() end
     end)
 end
 
-PushLog("=== Monitor Active ===", Color3.fromRGB(100,255,120))
-PushLog("Tap 👁 to show/hide", Color3.fromRGB(150,150,170))
-print("[ActionMonitor v3] Loaded — lag-free hook active.")
+PushLog("=== Monitor Active (v4 — no lag) ===", Color3.fromRGB(100,255,120))
+PushLog("Tap 👁 to show/hide. Long-press lines to copy.", Color3.fromRGB(150,150,170))
+print("[ActionMonitor v4] Loaded — FireServer + InvokeServer hooked.")
