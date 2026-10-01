@@ -1,173 +1,244 @@
--- ⚠️ Requires Executor — Action Monitor (Mobile Friendly)
--- Toggles: Tap floating button or press F9 to show/hide
--- Output: Shows RemoteEvents, arguments, and timing
+-- ⚠️ Requires Executor — Action Monitor v2
+-- Uses hookmetamethod on __namecall — the correct way to intercept FireServer/InvokeServer
+-- Mobile: tap the floating button to toggle. No keyboard needed.
 
--- UI Setup
+-- ============ SERVICES ============
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+-- ============ CHECK EXECUTOR FUNCTIONS ============
+if not hookmetamethod or not getnamecallmethod then
+    warn("[ActionMonitor] This executor does not support hookmetamethod/getnamecallmethod.")
+    return
+end
+
+-- ============ UI ============
 local ScreenGui = Instance.new("ScreenGui")
-local MainFrame = Instance.new("Frame")
-local Title = Instance.new("TextLabel")
-local LogContainer = Instance.new("ScrollingFrame")
-local ToggleBtn = Instance.new("TextButton")
-local ClearBtn = Instance.new("TextButton")
-local UIListLayout = Instance.new("UIListLayout")
-
--- Properties
 ScreenGui.Name = "ActionMonitor"
-ScreenGui.Parent = game.CoreGui
+ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = game:GetService("CoreGui")
 
-MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 340, 0, 420)
-MainFrame.Position = UDim2.new(0.02, 0, 0.5, -210)
-MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-MainFrame.BorderSizePixel = 2
-MainFrame.BorderColor3 = Color3.fromRGB(80, 80, 120)
-MainFrame.Visible = false
-MainFrame.Parent = ScreenGui
+-- Main window
+local Main = Instance.new("Frame")
+Main.Name = "Main"
+Main.Size = UDim2.new(0, 320, 0, 400)
+Main.Position = UDim2.new(0.03, 0, 0.5, -200)
+Main.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+Main.BorderSizePixel = 0
+Main.Visible = false
+Main.Active = true
+Main.Draggable = true
+Main.Parent = ScreenGui
 
-Title.Name = "Title"
-Title.Size = UDim2.new(1, 0, 0, 35)
-Title.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
-Title.Text = "📡 Action Monitor"
-Title.TextColor3 = Color3.fromRGB(220, 220, 255)
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 16
-Title.Parent = MainFrame
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 10)
+corner.Parent = Main
 
-ClearBtn.Name = "ClearBtn"
-ClearBtn.Size = UDim2.new(0, 70, 0, 30)
-ClearBtn.Position = UDim2.new(1, -75, 0, 2)
-ClearBtn.BackgroundColor3 = Color3.fromRGB(100, 40, 40)
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(70, 70, 110)
+stroke.Thickness = 1.5
+stroke.Parent = Main
+
+-- Title bar
+local TitleBar = Instance.new("Frame")
+TitleBar.Size = UDim2.new(1, 0, 0, 38)
+TitleBar.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = Main
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 10)
+titleCorner.Parent = TitleBar
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(1, -80, 1, 0)
+TitleLabel.Position = UDim2.new(0, 12, 0, 0)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Text = "Action Monitor"
+TitleLabel.TextColor3 = Color3.fromRGB(200, 210, 255)
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.TextSize = 15
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.Parent = TitleBar
+
+-- Clear button
+local ClearBtn = Instance.new("TextButton")
+ClearBtn.Size = UDim2.new(0, 60, 0, 26)
+ClearBtn.Position = UDim2.new(1, -68, 0.5, -13)
+ClearBtn.BackgroundColor3 = Color3.fromRGB(140, 50, 50)
 ClearBtn.Text = "Clear"
-ClearBtn.TextColor3 = Color3.new(1,1,1)
+ClearBtn.TextColor3 = Color3.new(1, 1, 1)
 ClearBtn.Font = Enum.Font.Gotham
 ClearBtn.TextSize = 12
-ClearBtn.Parent = Title
+ClearBtn.Parent = TitleBar
+local clearCorner = Instance.new("UICorner")
+clearCorner.CornerRadius = UDim.new(0, 6)
+clearCorner.Parent = ClearBtn
 
-LogContainer.Name = "LogContainer"
-LogContainer.Size = UDim2.new(1, -10, 1, -45)
-LogContainer.Position = UDim2.new(0, 5, 0, 40)
-LogContainer.BackgroundTransparency = 1
-LogContainer.ScrollBarThickness = 4
-LogContainer.Parent = MainFrame
+-- Log container
+local LogFrame = Instance.new("ScrollingFrame")
+LogFrame.Size = UDim2.new(1, -12, 1, -46)
+LogFrame.Position = UDim2.new(0, 6, 0, 42)
+LogFrame.BackgroundTransparency = 1
+LogFrame.BorderSizePixel = 0
+LogFrame.ScrollBarThickness = 4
+LogFrame.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 140)
+LogFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+LogFrame.Parent = Main
 
-UIListLayout.Padding = UDim.new(0, 4)
-UIListLayout.Parent = LogContainer
-LogContainer.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y)
+local ListLayout = Instance.new("UIListLayout")
+ListLayout.Padding = UDim.new(0, 3)
+ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+ListLayout.Parent = LogFrame
 
+-- Floating toggle button (mobile friendly)
+local ToggleBtn = Instance.new("TextButton")
 ToggleBtn.Name = "ToggleBtn"
-ToggleBtn.Size = UDim2.new(0, 60, 0, 60)
-ToggleBtn.Position = UDim2.new(0.02, 0, 0.85, 0)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 200)
-ToggleBtn.Text = "👁️"
-ToggleBtn.TextSize = 28
+ToggleBtn.Size = UDim2.new(0, 56, 0, 56)
+ToggleBtn.Position = UDim2.new(0.02, 0, 0.82, 0)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(50, 110, 200)
+ToggleBtn.Text = "👁"
+ToggleBtn.TextSize = 24
+ToggleBtn.TextColor3 = Color3.new(1, 1, 1)
+ToggleBtn.Active = true
+ToggleBtn.Draggable = true
 ToggleBtn.Parent = ScreenGui
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(1, 0)
+toggleCorner.Parent = ToggleBtn
+local toggleStroke = Instance.new("UIStroke")
+toggleStroke.Color = Color3.fromRGB(100, 160, 255)
+toggleStroke.Thickness = 2
+toggleStroke.Parent = ToggleBtn
 
--- State
-local LogEntries = {}
-local isVisible = false
+-- ============ LOGGING ============
+local LogCount = 0
+local MaxLogs = 80
 
--- Add log entry
+local function FormatValue(v)
+    local t = typeof(v)
+    if t == "string" then
+        return '"' .. v .. '"'
+    elseif t == "number" then
+        return tostring(math.floor(v * 1000) / 1000)
+    elseif t == "Instance" then
+        return v.Name .. " (" .. v.ClassName .. ")"
+    elseif t == "Vector3" then
+        return string.format("Vector3(%.1f, %.1f, %.1f)", v.X, v.Y, v.Z)
+    elseif t == "CFrame" then
+        local p = v.Position
+        return string.format("CFrame(%.1f, %.1f, %.1f)", p.X, p.Y, p.Z)
+    elseif t == "boolean" then
+        return tostring(v)
+    elseif t == "nil" then
+        return "nil"
+    else
+        return tostring(v)
+    end
+end
+
+local function FormatArgs(...)
+    local args = {...}
+    if #args == 0 then return "(no args)" end
+    local parts = {}
+    for i, v in ipairs(args) do
+        table.insert(parts, "[" .. i .. "]=" .. FormatValue(v))
+    end
+    return table.concat(parts, "  ")
+end
+
 local function AddLog(text, color)
-    color = color or Color3.fromRGB(200, 200, 200)
-    
+    LogCount = LogCount + 1
     local Entry = Instance.new("TextLabel")
-    Entry.Size = UDim2.new(1, -8, 0, 0)
+    Entry.LayoutOrder = LogCount
+    Entry.Size = UDim2.new(1, -6, 0, 0)
     Entry.AutomaticSize = Enum.AutomaticSize.Y
     Entry.BackgroundTransparency = 1
     Entry.Text = text
-    Entry.TextColor3 = color
-    Entry.Font = Enum.Font.Gotham
+    Entry.TextColor3 = color or Color3.fromRGB(190, 190, 200)
+    Entry.Font = Enum.Font.Code
     Entry.TextSize = 11
     Entry.TextWrapped = true
     Entry.TextXAlignment = Enum.TextXAlignment.Left
-    Entry.Parent = LogContainer
-    
-    table.insert(LogEntries, Entry)
-    
-    -- Limit log size
-    if #LogEntries > 50 then
-        LogEntries[1]:Destroy()
-        table.remove(LogEntries, 1)
-    end
-    
+    Entry.Parent = LogFrame
+
+    -- Auto-scroll to bottom
     task.wait(0.01)
-    LogContainer.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y)
-    LogContainer.ScrollPosition = LogContainer.CanvasSize.Y.Offset
-end
+    LogFrame.CanvasSize = UDim2.new(0, 0, 0, ListLayout.AbsoluteContentSize.Y)
+    LogFrame.CanvasPosition = Vector2.new(0, ListLayout.AbsoluteContentSize.Y)
 
--- Format arguments safely
-local function FormatArgs(...)
-    local args = {...}
-    if #args == 0 then return "None" end
-    local parts = {}
-    for i, v in ipairs(args) do
-        local val
-        if type(v) == "string" then
-            val = "\"" .. v .. "\""
-        elseif type(v) == "number" then
-            val = tostring(math.floor(v * 100) / 100)
-        elseif typeof(v) == "Instance" then
-            val = v.Name .. " (" .. v.ClassName .. ")"
-        else
-            val = tostring(v)
-        end
-        table.insert(parts, "[" .. i .. "] " .. val)
+    -- Trim old entries
+    local children = LogFrame:GetChildren()
+    local labels = {}
+    for _, c in ipairs(children) do
+        if c:IsA("TextLabel") then table.insert(labels, c) end
     end
-    return table.concat(parts, ", ")
+    if #labels > MaxLogs then
+        table.sort(labels, function(a, b) return a.LayoutOrder < b.LayoutOrder end)
+        labels[1]:Destroy()
+    end
 end
 
--- Toggle visibility
-local function ToggleUI()
-    isVisible = not isVisible
-    MainFrame.Visible = isVisible
+-- ============ THE HOOK — CORRECT METHOD ============
+-- Save original __namecall
+local oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+
+    -- FireServer (RemoteEvent)
+    if method == "FireServer" and self:IsA("RemoteEvent") then
+        AddLog("▶ FireServer: " .. self.Name, Color3.fromRGB(100, 200, 255))
+        AddLog("   Args: " .. FormatArgs(...), Color3.fromRGB(140, 140, 160))
+    end
+
+    -- InvokeServer (RemoteFunction)
+    if method == "InvokeServer" and self:IsA("RemoteFunction") then
+        AddLog("▶ InvokeServer: " .. self.Name, Color3.fromRGB(255, 180, 100))
+        AddLog("   Args: " .. FormatArgs(...), Color3.fromRGB(140, 140, 160))
+        local results = {oldNamecall(self, ...)}
+        AddLog("   ↩ Return: " .. FormatArgs(unpack(results)), Color3.fromRGB(100, 255, 150))
+        return unpack(results)
+    end
+
+    return oldNamecall(self, ...)
+end)
+
+-- Also hook FireServer directly on instances (some executors need this)
+pcall(function()
+    local oldFire = Instance.new("RemoteEvent").FireServer
+    -- Not all executors support this; __namecall covers most cases
+end)
+
+-- ============ TOGGLE ============
+local visible = false
+local function Toggle()
+    visible = not visible
+    Main.Visible = visible
 end
 
--- Connections
-ToggleBtn.MouseButton1Click:Connect(ToggleUI)
-if game:GetService("UserInputService").KeyboardEnabled then
-    game:GetService("UserInputService").InputBegan:Connect(function(Input, gp)
-        if not gp and Input.KeyCode == Enum.KeyCode.F9 then
-            ToggleUI()
+ToggleBtn.MouseButton1Click:Connect(Toggle)
+ClearBtn.MouseButton1Click:Connect(function()
+    for _, c in ipairs(LogFrame:GetChildren()) do
+        if c:IsA("TextLabel") then c:Destroy() end
+    end
+    LogCount = 0
+    LogFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+end)
+
+-- Keyboard toggle too (F9) if device has keyboard
+if UserInputService.KeyboardEnabled then
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if not gp and input.KeyCode == Enum.KeyCode.F9 then
+            Toggle()
         end
     end)
 end
 
-ClearBtn.MouseButton1Click:Connect(function()
-    for _, v in ipairs(LogEntries) do v:Destroy() end
-    table.clear(LogEntries)
-end)
-
--- ⚠️ Executor-Only Feature — Hook RemoteEvents
--- Watches ALL RemoteEvents and RemoteFunctions being used in-game
-local OldFireServer
-local OldInvokeServer
-
-pcall(function()
-    local mt = getmetatable(game:GetService("ReplicatedStorage"):FindFirstChildWhichIsA("RemoteEvent") or Instance.new("RemoteEvent"))
-    OldFireServer = mt.__index.FireServer
-    mt.__index.FireServer = function(self, ...)
-        local args = FormatArgs(...)
-        AddLog("▶️ RemoteEvent: " .. self.Name, Color3.fromRGB(100, 200, 255))
-        AddLog("   Sent: " .. args, Color3.fromRGB(160, 160, 160))
-        return OldFireServer(self, ...)
-    end
-end)
-
-pcall(function()
-    local mt = getmetatable(game:GetService("ReplicatedStorage"):FindFirstChildWhichIsA("RemoteFunction") or Instance.new("RemoteFunction"))
-    OldInvokeServer = mt.__index.InvokeServer
-    mt.__index.InvokeServer = function(self, ...)
-        local args = FormatArgs(...)
-        AddLog("▶️ RemoteFunction: " .. self.Name, Color3.fromRGB(255, 180, 100))
-        AddLog("   Sent: " .. args, Color3.fromRGB(160, 160, 160))
-        local results = {OldInvokeServer(self, ...)}
-        AddLog("   Received: " .. FormatArgs(unpack(results)), Color3.fromRGB(100, 255, 150))
-        return unpack(results)
-    end
-end)
-
--- Initial
-AddLog("✅ Action Monitor Started", Color3.fromRGB(100, 255, 100))
-AddLog("👁️ Tap blue button to show/hide", Color3.fromRGB(150, 150, 150))
-AddLog("Perform an action in-game — watch this window", Color3.fromRGB(150, 150, 150))
+-- ============ START ============
+AddLog("=== Monitor Active ===", Color3.fromRGB(100, 255, 120))
+AddLog("Tap 👁 button to show/hide", Color3.fromRGB(150, 150, 170))
+AddLog("Do something in game → watch here", Color3.fromRGB(150, 150, 170))
+print("[ActionMonitor] Loaded. Hooked __namecall.")
