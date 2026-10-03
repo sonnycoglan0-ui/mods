@@ -1,35 +1,16 @@
--- Sonny's Gem Farmer v6 — Full Clean Rewrite
--- ✅ Learned & rebuilt from the working original
--- ✅ Only OUR UI shows — no extra windows
--- ✅ All the original's hidden logic included
+-- Sonny's Gem Farmer — NO original UI code at all.
+-- Farming logic kept identical. Only Sonny's green/blue UI shows.
 
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-
--- ======================================
--- 🔍 LEARNED: The original's key logic
--- ======================================
--- 1. Finds the gem prompt ONCE and reuses it
--- 2. Disables the game's own autoplay GUI
--- 3. Clears session attributes every frame (bypasses cooldowns)
--- 4. Uses 4 parallel loops for reliability
--- 5. Report FIRST → Quit SECOND with correct values
--- 6. Adjusts prompt settings so it works from anywhere
-
--- ============ OUR UI ============
+-- ============ SONNY'S UI ============
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "SonysGemFarmer"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = game:GetService("CoreGui")
 
 local Main = Instance.new("Frame")
-Main.Size = UDim2.new(0, 230, 0, 140)
+Main.Size = UDim2.new(0, 230, 0, 135)
 Main.Position = UDim2.new(0.02, 0, 0.70, 0)
 Main.Active = true
 Main.Draggable = true
@@ -42,7 +23,6 @@ Gradient.Color = ColorSequence.new{
     ColorSequenceKeypoint.new(1, Color3.fromRGB(52, 152, 219))
 }
 Gradient.Parent = Main
-
 Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 16)
 
 local Title = Instance.new("TextLabel")
@@ -68,7 +48,7 @@ local Count = Instance.new("TextLabel")
 Count.Size = UDim2.new(1, 0, 0, 18)
 Count.Position = UDim2.new(0, 0, 0, 58)
 Count.BackgroundTransparency = 1
-Count.Text = "Gems Collected: 0"
+Count.Text = "Gems: 0"
 Count.TextColor3 = Color3.fromRGB(200, 255, 200)
 Count.Font = Enum.Font.Gotham
 Count.TextSize = 11
@@ -76,7 +56,7 @@ Count.Parent = Main
 
 local ToggleBtn = Instance.new("TextButton")
 ToggleBtn.Size = UDim2.new(0.75, 0, 0, 40)
-ToggleBtn.Position = UDim2.new(0.125, 0, 0, 90)
+ToggleBtn.Position = UDim2.new(0.125, 0, 0, 88)
 ToggleBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
 ToggleBtn.Text = "🔴 OFF"
 ToggleBtn.TextColor3 = Color3.new(1,1,1)
@@ -86,136 +66,114 @@ ToggleBtn.AutoButtonColor = false
 ToggleBtn.Parent = Main
 Instance.new("UICorner", ToggleBtn).CornerRadius = UDim.new(0, 10)
 
--- ============ FARMING STATE ============
-local State = {
-    AutoFarmGems = false,
-    TotalFarmedGems = 0
-}
-
--- ============ SETUP — Hide game's autoplay GUI ============
-task.spawn(function()
-    task.wait(0.3)
-    local oldGui = PlayerGui:FindFirstChild("ArcadeAutoplayGui")
-    if oldGui then oldGui:Destroy() end -- Remove it entirely, not just hide
-end)
-
--- ============ GET REMOTES ============
-local Arcade = ReplicatedStorage:WaitForChild("Arcade")
-local ArcadeReport = Arcade:WaitForChild("ArcadeReport")
-local ArcadeSession = Arcade:WaitForChild("ArcadeSession")
-
--- ============ FIND GEM PROMPT (cache it once) ============
-local gemPrompt = nil
-
-local function FindGemPrompt()
-    if gemPrompt then return gemPrompt end
-    
-    -- Search workspace first
-    for _, descendant in ipairs(Workspace:GetDescendants()) do
-        if descendant:IsA("ProximityPrompt") and descendant.Name == "Collect" then
-            gemPrompt = descendant
-            -- Make it work instantly from anywhere
-            gemPrompt.HoldDuration = 0
-            gemPrompt.MaxActivationDistance = math.huge
-            gemPrompt.RequiresLineOfSight = false
-            return gemPrompt
-        end
-    end
-    
-    -- Search entire game if not found in workspace
-    for _, descendant in ipairs(game:GetDescendants()) do
-        if descendant:IsA("ProximityPrompt") and descendant.Name == "Collect" then
-            gemPrompt = descendant
-            gemPrompt.HoldDuration = 0
-            gemPrompt.MaxActivationDistance = math.huge
-            gemPrompt.RequiresLineOfSight = false
-            return gemPrompt
-        end
-    end
-    
-    return nil
-end
-
--- ============ CLEAR SESSION COOLDOWNS ============
-RunService.RenderStepped:Connect(function()
-    if State.AutoFarmGems then
-        -- Clear any session tracking attributes the game sets
-        LocalPlayer:SetAttribute("ArcadeSessionStartTime", nil)
-        LocalPlayer:SetAttribute("ArcadeLastQuitTime", nil)
-        
-        -- Also disable the game's built-in autoplay toggle if it exists
-        local autoPlayToggle = PlayerGui:FindFirstChild("AutoPlayToggle", true)
-        if autoPlayToggle and autoPlayToggle:IsA("GuiObject") then
-            autoPlayToggle.Visible = false
-        end
-    end
-end)
-
--- ============ FARMING LOOP ============
-local function FarmingWorker()
-    while State.AutoFarmGems do
-        local prompt = FindGemPrompt()
-        
-        if prompt then
-            -- Step 1: Fire the gem pickup
-            if fireproximityprompt then
-                fireproximityprompt(prompt, 0)
-            else
-                prompt:InputHoldBegin()
-                task.wait(0.05)
-                prompt:InputHoldEnd()
-            end
-            
-            task.wait(0.08)
-            
-            -- Step 2: Report kills FIRST (correct order!)
-            pcall(function()
-                ArcadeReport:FireServer("kills", 40, 2)
-            end)
-            
-            task.wait(0.05)
-            
-            -- Step 3: Quit session SECOND
-            pcall(function()
-                ArcadeSession:FireServer("quit", 1, 6240)
-            end)
-            
-            -- Increment counter
-            State.TotalFarmedGems += 2
-            Count.Text = "Gems Collected: " .. State.TotalFarmedGems
-        end
-        
-        task.wait(0.15)
-    end
-end
-
--- ============ TOGGLE ============
-local runningWorkers = {}
-
+local running = false
 ToggleBtn.MouseButton1Click:Connect(function()
-    State.AutoFarmGems = not State.AutoFarmGems
-    
-    if State.AutoFarmGems then
+    running = not running
+    if _G.GFState then _G.GFState.AutoFarmGems = running end
+    if running then
         ToggleBtn.Text = "🟢 RUNNING"
         ToggleBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 70)
-        Status.Text = "Farming Gems..."
-        gemPrompt = nil -- Reset prompt cache
-        State.TotalFarmedGems = 0
-        
-        -- Start 4 parallel workers like original (more reliable!)
-        for i = 1, 4 do
-            runningWorkers[i] = task.spawn(FarmingWorker)
-            task.wait(0.05)
-        end
+        Status.Text = "Farming..."
     else
         ToggleBtn.Text = "🔴 OFF"
         ToggleBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
         Status.Text = "Stopped"
-        -- Stop all workers on next loop check
-        State.AutoFarmGems = false
     end
 end)
 
-print("💎 Sonny's Gem Farmer v6 Loaded — Clean Rewrite Complete")
-print("✅ Original UI removed")
-print("✅ All critical logic rebuilt and working")
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if _G.GFState then
+            Count.Text = "Gems: " .. tostring(_G.GFState.TotalFarmedGems or 0)
+        end
+    end
+end)
+
+-- ============ FARMING LOGIC ONLY — NO UI ============
+local v0=string.char;local v1=string.byte;local v2=string.sub;local v3=bit32 or bit ;local v4=v3.bxor;local v5=table.concat;local v6=table.insert;local function v7(v112,v113) local v114={};for v142=1, #v112 do v6(v114,v0(v4(v1(v2(v112,v142,v142 + 1 )),v1(v2(v113,1 + (v142% #v113) ,1 + (v142% #v113) + 1 )))%256 ));end return v5(v114);end
+local v8=game:GetService(v7("\242\204\201\32\193\174\206","\126\177\163\187\69\134\219\167"))
+local v9=game:GetService(v7("\19\193\43\220\249\49\222","\156\67\173\74\165"))
+local v10=game:GetService(v7("\6\162\71\37\185\52\80\61\180\76","\38\84\215\41\118\220\70"))
+local v13=game:GetService(v7("\116\216\38\240\73\123\228\236\67\217\5\232\79\106\228\255\67","\152\38\189\86\156\32\24\133"))
+local v14=game:GetService(v7("\203\88\181\77\239\71\166\69\249","\38\156\55\199"))
+local v15=v9.LocalPlayer
+local v16=v15:WaitForChild(v7("\152\113\125\49\22\102\221\86\161","\35\200\29\28\72\115\20\154"))
+
+-- State (exposed for Sonny's button)
+_G.GFState = {
+    [v7("\226\26\150\248\236\194\29\143\208\207\206\28","\170\163\111\226\151")]=false,
+    [v7("\37\63\166\57\66\17\40\3\61\183\60\105\50\36\2","\73\113\80\210\88\46\87")]=584 -(57 + 527)
+}
+local v104 = _G.GFState
+
+-- Remotes
+local v106=v13:WaitForChild(v7("\159\224\194\195\62\203","\30\222\146\161\162\90\174\210"))
+local v107=v106:WaitForChild(v7("\196\92\115\11\225\75\66\15\245\65\98\30","\106\133\46\16"))
+local v108=v106:WaitForChild(v7("\121\50\112\253\94\69\107\37\96\239\83\79\86","\32\56\64\19\156\58"))
+
+-- Camera fly bypass
+pcall(function()
+    local v138=require(v106:WaitForChild(v7("\123\218\230\87\94\247\163\85\198\227\95\93","\224\58\168\133\54\58\146")))
+    v138.Machine.CameraFlyTime=0
+end)
+
+-- Anti-cheat bypass every frame
+v10.RenderStepped:Connect(function()
+    if v104.AutoFarmGems then
+        local v147=v16:FindFirstChild(v7("\29\189\130\77\231\124\75\63\189\132\73\237","\24\92\207\225\44\131\25"))
+        if v147 and v147.Enabled then v147.Enabled=false end
+        v15:SetAttribute(v7("\120\68\72\252\113\131\183\7\88\79\66\243\114","\107\57\54\43\157\21\230\231"),nil)
+        v15:SetAttribute(v7("\245\142\20\241\181\217\230\213\155\4\225\149\211\204\208\142\21","\175\187\235\113\149\217\188"),nil)
+    end
+end)
+
+-- Gem prompt finder (cached)
+local v109=nil
+local function v110()
+    if v109 and v109.Parent then return v109 end
+    local v140=v14:FindFirstChild(v7("\106\193\187\77\31\120\11\254\185\79\19\116\69\214","\29\43\179\216\44\123"),true)
+    if v140 then v109=v140:FindFirstChild(v7("\141\213\33\85\141\203\47\65\173\205","\44\221\185\64"),true) end
+    if not v109 then
+        for v189,v190 in ipairs(v14:GetDescendants()) do
+            if v190:IsA(v7("\49\245\71\71\122\12\238\92\70\67\19\232\69\79\103","\19\97\135\40\63")) and v190.Name==v7("\158\80\50\34\31\35\161\81\35\47","\81\206\60\83\91\79") then
+                v109=v190 break
+            end
+        end
+    end
+    if v109 then
+        v109.HoldDuration=0
+        v109.MaxActivationDistance=math.huge
+        v109.RequiresLineOfSight=false
+        v109.ClickablePrompt=true
+    end
+    return v109
+end
+
+-- Farming worker — loop condition changed from "v18 exists" to true (no UI to check)
+local function v111()
+    task.spawn(function()
+        while true do
+            if v104.AutoFarmGems then
+                pcall(function()
+                    local v187=v110()
+                    if v187 then
+                        if fireproximityprompt then fireproximityprompt(v187,0)
+                        else v187:InputHoldBegin(); v187:InputHoldEnd() end
+                    end
+                    v107:FireServer(v7("\69\162\220\126\60","\196\46\203\176\18\79\163\45"),40,2)
+                    v104.TotalFarmedGems=v104.TotalFarmedGems + (2599 -(1913 + 62))
+                    v108:FireServer(v7("\169\55\119\10","\143\216\66\30\126\68\155"),1934 -(565 + 1368),23466 -17226)
+                end)
+                task.wait()
+            else
+                task.wait(0.2)
+            end
+        end
+    end)
+end
+
+-- Spawn 4 workers
+for v141=1,308 -(244 + 60) do v111() end
+
+print("SonysGemFarmer loaded — farming ready")
